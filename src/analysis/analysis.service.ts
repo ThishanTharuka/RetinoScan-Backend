@@ -5,6 +5,7 @@ import { Analysis, AnalysisDocument } from './schemas/analysis.schema';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { AnalysisResponseDto } from './dto/analysis-response.dto';
 import { UploadService } from '../upload/upload.service';
+import { ModelApiService } from './model-api.service';
 
 @Injectable()
 export class AnalysisService {
@@ -12,6 +13,7 @@ export class AnalysisService {
     @InjectModel(Analysis.name)
     private readonly analysisModel: Model<AnalysisDocument>,
     private readonly uploadService: UploadService,
+    private readonly modelApiService: ModelApiService,
   ) {}
 
   async create(
@@ -19,31 +21,135 @@ export class AnalysisService {
     file: Express.Multer.File,
     createAnalysisDto: CreateAnalysisDto,
   ): Promise<AnalysisResponseDto> {
-    // Upload image to Cloudinary
-    const imageUrl = await this.uploadService.uploadImage(
-      file,
-      'retinal-scans',
-    );
+    let savedAnalysis: AnalysisDocument | null = null;
 
-    // Create analysis document
-    const analysis = new this.analysisModel({
-      userId,
-      originalImageUrl: imageUrl,
-      patientInfo: {
-        name: createAnalysisDto.patientName,
-        age: createAnalysisDto.patientAge,
-        gender: createAnalysisDto.patientGender,
-        notes: createAnalysisDto.patientNotes,
-      },
-      status: 'pending',
-    });
+    try {
+      // Step 1: Upload image to Cloudinary first
+      const imageUrl = await this.uploadService.uploadImage(
+        file,
+        'retinal-scans',
+      );
 
-    const savedAnalysis = await analysis.save();
+      // Step 2: Create initial analysis document with image URL
+      const analysis = new this.analysisModel({
+        userId,
+        originalImageUrl: imageUrl,
+        patientInfo: {
+          name: createAnalysisDto.patientName,
+          age: createAnalysisDto.patientAge,
+          gender: createAnalysisDto.patientGender,
+          notes: createAnalysisDto.patientNotes,
+        },
+        status: 'processing',
+      });
 
-    // TODO: Trigger ML processing here
-    // this.triggerMLProcessing(savedAnalysis._id.toString());
+      savedAnalysis = await analysis.save();
 
-    return this.toResponseDto(savedAnalysis);
+      // Step 3: Send to Model API for prediction
+      const modelResponse = await this.modelApiService.predictFromFile(
+        file,
+        createAnalysisDto.patientName, // Use patient name as ID for now
+        createAnalysisDto.patientName,
+      );
+
+      // Step 3: Map Model API response to our prediction format
+      const conditionToSeverity: { [key: string]: number } = {
+        'No Diabetic Retinopathy': 0,
+        'Mild Diabetic Retinopathy': 1,
+        'Moderate Diabetic Retinopathy': 2,
+        'Severe Diabetic Retinopathy': 3,
+        'Proliferative Diabetic Retinopathy': 4,
+      };
+
+      const severityMap: { [key: number]: string } = {
+        0: 'No Diabetic Retinopathy',
+        1: 'Mild Diabetic Retinopathy',
+        2: 'Moderate Diabetic Retinopathy',
+        3: 'Severe Diabetic Retinopathy',
+        4: 'Proliferative Diabetic Retinopathy',
+      };
+
+      // Find the highest confidence prediction
+      let severityLevel = 0;
+      let maxConfidence = 0;
+      modelResponse.predictions.forEach((pred) => {
+        if (pred.confidence > maxConfidence) {
+          maxConfidence = pred.confidence;
+          severityLevel = conditionToSeverity[pred.condition] || 0;
+        }
+      });
+
+      const getUrgencyLevel = (level: number): string => {
+        if (level >= 3) return '🚨 URGENT';
+        if (level >= 2) return '⚠️ MODERATE';
+        if (level >= 1) return '💛 MILD';
+        return '✅ NORMAL';
+      };
+
+      const getRecommendations = (level: number): string[] => {
+        switch (level) {
+          case 0:
+            return ['Continue regular eye exams', 'Maintain healthy lifestyle'];
+          case 1:
+            return [
+              'Schedule follow-up in 6-12 months',
+              'Monitor blood sugar levels',
+              'Consider lifestyle modifications',
+            ];
+          case 2:
+            return [
+              'Schedule follow-up in 3-6 months',
+              'Consult with ophthalmologist',
+              'Optimize diabetes management',
+            ];
+          case 3:
+            return [
+              'Urgent ophthalmologist referral required',
+              'Consider laser treatment',
+              'Intensive diabetes management',
+            ];
+          case 4:
+            return [
+              'IMMEDIATE ophthalmologist consultation',
+              'May require surgery',
+              'Emergency diabetes management',
+            ];
+          default:
+            return ['Consult with healthcare provider'];
+        }
+      };
+
+      // Step 4: Update analysis with prediction results
+      savedAnalysis.status = 'completed';
+      savedAnalysis.analysisDate = new Date();
+      savedAnalysis.prediction = {
+        predictions: modelResponse.predictions,
+        primary_diagnosis: modelResponse.primary_diagnosis,
+        confidence_score: modelResponse.confidence_score,
+        processing_time: modelResponse.processing_time,
+        severity_level: severityLevel,
+        severity_name: severityMap[severityLevel],
+        urgency_level: getUrgencyLevel(severityLevel),
+        recommendations: getRecommendations(severityLevel),
+        metadata: modelResponse.metadata,
+      };
+
+      // Save final analysis
+      const finalAnalysis = await savedAnalysis.save();
+      return this.toResponseDto(finalAnalysis);
+    } catch (error) {
+      console.error('Analysis processing error:', error);
+
+      // Update analysis with error status if it was created
+      if (savedAnalysis) {
+        savedAnalysis.status = 'failed';
+        savedAnalysis.errorMessage = error.message;
+        await savedAnalysis.save();
+      }
+
+      // Re-throw the error so the controller can handle it
+      throw error;
+    }
   }
 
   async findAll(userId: string): Promise<AnalysisResponseDto[]> {

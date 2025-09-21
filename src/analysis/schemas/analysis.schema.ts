@@ -10,16 +10,29 @@ export interface PatientInfo {
   notes?: string;
 }
 
-export interface PredictionResult {
-  severity: 'mild' | 'moderate' | 'severe';
+export interface ModelPrediction {
+  condition: string;
   confidence: number;
-  affectedAreas?: Array<{
-    x: number;
-    y: number;
-    radius: number;
-    severity: 'low' | 'medium' | 'high';
-  }>;
-  processingTime?: number;
+  probability: number;
+}
+
+export interface PredictionResult {
+  predictions: ModelPrediction[];
+  primary_diagnosis: string;
+  confidence_score: number;
+  processing_time: number;
+  severity_level: number;
+  severity_name: string;
+  urgency_level: string;
+  recommendations: string[];
+  metadata: {
+    model_version: string;
+    model_architecture: string;
+    preprocessing: string;
+    image_size: number[];
+    file_name?: string;
+    file_size?: number;
+  };
 }
 
 @Schema({ timestamps: true })
