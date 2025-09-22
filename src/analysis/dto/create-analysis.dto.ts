@@ -2,6 +2,9 @@ import { IsString, IsOptional, IsNumber, IsEnum } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class CreateAnalysisDto {
+  @IsOptional()
+  @IsString()
+  patientId?: string; // Optional patient identifier from frontend
   @IsString()
   patientName: string;
 
@@ -23,4 +26,8 @@ export class CreateAnalysisDto {
   @IsOptional()
   @IsString()
   patientNotes?: string;
+
+  @IsOptional()
+  @IsString()
+  actualStage?: string; // clinician-provided ground truth stage (optional)
 }

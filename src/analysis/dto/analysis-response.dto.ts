@@ -1,6 +1,8 @@
 import { PatientInfo, PredictionResult } from '../schemas/analysis.schema';
 
 export class AnalysisResponseDto {
+  actualStage?: string;
+  patientId?: string;
   id: string;
   userId: string;
   originalImageUrl: string;

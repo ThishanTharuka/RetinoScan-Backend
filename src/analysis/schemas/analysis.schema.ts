@@ -10,6 +10,10 @@ export interface PatientInfo {
   notes?: string;
 }
 
+export interface AnalysisGroundTruth {
+  actualStage?: string;
+}
+
 export interface ModelPrediction {
   condition: string;
   confidence: number;
@@ -40,6 +44,9 @@ export class Analysis {
   @Prop({ required: true })
   userId: string; // Firebase UID
 
+  @Prop()
+  patientId?: string; // Optional patient identifier collected from frontend
+
   @Prop({ required: true })
   originalImageUrl: string;
 
@@ -55,6 +62,9 @@ export class Analysis {
 
   @Prop({ type: Object })
   patientInfo?: PatientInfo;
+
+  @Prop()
+  actualStage?: string; // optional clinician-provided ground truth
 
   @Prop({ type: Object })
   prediction?: PredictionResult;

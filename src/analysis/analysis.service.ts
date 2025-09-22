@@ -34,6 +34,7 @@ export class AnalysisService {
       const analysis = new this.analysisModel({
         userId,
         originalImageUrl: imageUrl,
+        patientId: createAnalysisDto.patientId || undefined,
         patientInfo: {
           name: createAnalysisDto.patientName,
           age: createAnalysisDto.patientAge,
@@ -41,6 +42,7 @@ export class AnalysisService {
           notes: createAnalysisDto.patientNotes,
         },
         status: 'processing',
+        actualStage: createAnalysisDto.actualStage || undefined,
       });
 
       savedAnalysis = await analysis.save();
@@ -48,7 +50,7 @@ export class AnalysisService {
       // Step 3: Send to Model API for prediction
       const modelResponse = await this.modelApiService.predictFromFile(
         file,
-        createAnalysisDto.patientName, // Use patient name as ID for now
+        createAnalysisDto.patientId || createAnalysisDto.patientName,
         createAnalysisDto.patientName,
       );
 
@@ -134,6 +136,11 @@ export class AnalysisService {
         metadata: modelResponse.metadata,
       };
 
+      // If clinician provided ground truth, keep it alongside prediction
+      if (createAnalysisDto.actualStage) {
+        savedAnalysis.actualStage = createAnalysisDto.actualStage;
+      }
+
       // Save final analysis
       const finalAnalysis = await savedAnalysis.save();
       return this.toResponseDto(finalAnalysis);
@@ -214,6 +221,8 @@ export class AnalysisService {
 
   private toResponseDto(analysis: AnalysisDocument): AnalysisResponseDto {
     return {
+      patientId: analysis.patientId as any,
+      actualStage: analysis.actualStage as any,
       id: analysis._id.toString(),
       userId: analysis.userId,
       originalImageUrl: analysis.originalImageUrl,
